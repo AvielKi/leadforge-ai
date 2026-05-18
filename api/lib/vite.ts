@@ -1,49 +1,105 @@
 import type { Hono } from "hono";
 import type { HttpBindings } from "@hono/node-server";
-import { serveStatic } from "@hono/node-server/serve-static";
 import fs from "fs";
 import path from "path";
-import { fileURLToPath } from "url";
 
 type App = Hono<{ Bindings: HttpBindings }>;
 
 export function serveStaticFiles(app: App) {
-  // In bundled output, boot.js is at <project>/dist/boot.js
-  // Public files are at <project>/dist/public/
-  // So from boot.js's directory, public is at "./public"
-  const __dirname = import.meta.dirname || path.dirname(fileURLToPath(import.meta.url));
-  const distPath = path.resolve(__dirname, "public");
+  // Try multiple strategies to find the public directory
+  const possibleRoots = [
+    // Strategy 1: Relative to boot.js location (bundled)
+    path.resolve(import.meta.dirname || __dirname, "public"),
+    // Strategy 2: Relative to cwd (Railway runs from project root)
+    path.resolve(process.cwd(), "dist", "public"),
+    // Strategy 3: One level up from boot.js + dist/public
+    path.resolve(process.cwd(), "..", "dist", "public"),
+    // Strategy 4: Just cwd/public
+    path.resolve(process.cwd(), "public"),
+  ];
 
-  // Verify the path exists (for Railway debugging)
-  const exists = fs.existsSync(distPath);
-  const indexExists = fs.existsSync(path.join(distPath, "index.html"));
-  const assetsDir = path.join(distPath, "assets");
-  const assetsExist = fs.existsSync(assetsDir);
-  const assetFiles = assetsExist ? fs.readdirSync(assetsDir).filter((f) => f.endsWith(".js")) : [];
+  // Find the first path that exists and has index.html
+  let publicRoot = "";
+  for (const root of possibleRoots) {
+    const indexPath = path.join(root, "index.html");
+    if (fs.existsSync(indexPath)) {
+      publicRoot = root;
+      break;
+    }
+  }
 
-  console.log("📁 Static files root:", distPath);
-  console.log("   Exists:", exists);
-  console.log("   index.html:", indexExists);
-  console.log("   assets/:", assetsExist, `(${assetFiles.length} JS files)`);
+  if (!publicRoot) {
+    // None of the paths worked - log all attempts
+    console.error("❌ Could not find public directory. Tried:");
+    for (const root of possibleRoots) {
+      const exists = fs.existsSync(root);
+      const hasIndex = fs.existsSync(path.join(root, "index.html"));
+      console.error(`   ${root} (dir: ${exists}, index: ${hasIndex})`);
+    }
+    console.error("   cwd:", process.cwd());
+    console.error("   dirname:", import.meta.dirname || __dirname);
+    console.error("   files in cwd:", fs.readdirSync(process.cwd()).slice(0, 20));
+    return;
+  }
 
-  // Serve static files - use absolute path
-  app.use("*", serveStatic({ root: distPath }));
+  console.log("✅ Serving static files from:", publicRoot);
 
-  // SPA fallback: serve index.html for non-file routes (React Router)
-  app.notFound((c) => {
+  // Helper: serve a file with correct MIME type
+  const serveFile = (filePath: string, c: any) => {
+    if (!fs.existsSync(filePath)) return null;
+    // Must be a file, not a directory
+    const stat = fs.statSync(filePath);
+    if (!stat.isFile()) return null;
+    const ext = path.extname(filePath).toLowerCase();
+    const mimeTypes: Record<string, string> = {
+      ".html": "text/html",
+      ".js": "application/javascript",
+      ".mjs": "application/javascript",
+      ".css": "text/css",
+      ".json": "application/json",
+      ".png": "image/png",
+      ".jpg": "image/jpeg",
+      ".jpeg": "image/jpeg",
+      ".svg": "image/svg+xml",
+      ".ico": "image/x-icon",
+      ".woff2": "font/woff2",
+      ".woff": "font/woff",
+      ".ttf": "font/ttf",
+    };
+    const contentType = mimeTypes[ext] || "application/octet-stream";
+    const body = fs.readFileSync(filePath);
+    return c.newResponse(body, 200, {
+      "Content-Type": contentType,
+      "Cache-Control": ext === ".html" ? "no-cache" : "public, max-age=31536000, immutable",
+    });
+  };
+
+  // Serve static assets (JS, CSS, images, fonts)
+  app.get("/assets/*", (c) => {
+    const filePath = path.join(publicRoot, c.req.path);
+    const response = serveFile(filePath, c);
+    if (response) return response;
+    return c.json({ error: "Asset not found: " + c.req.path }, 404);
+  });
+
+  // Serve root-level files (favicon, manifest, etc.)
+  app.get("/*", (c) => {
+    const urlPath = c.req.path;
+    // Skip API routes
+    if (urlPath.startsWith("/api")) return c.notFound();
+
+    const filePath = path.join(publicRoot, urlPath);
+    const response = serveFile(filePath, c);
+    if (response) return response;
+
+    // SPA fallback: serve index.html for any non-file route
     const accept = c.req.header("accept") ?? "";
-    if (!accept.includes("text/html")) {
-      return c.json({ error: "Not Found" }, 404);
+    if (accept.includes("text/html")) {
+      const indexPath = path.join(publicRoot, "index.html");
+      const indexResponse = serveFile(indexPath, c);
+      if (indexResponse) return indexResponse;
     }
-    try {
-      const indexPath = path.join(distPath, "index.html");
-      if (!fs.existsSync(indexPath)) {
-        return c.json({ error: "index.html not found at " + distPath }, 500);
-      }
-      const content = fs.readFileSync(indexPath, "utf-8");
-      return c.html(content);
-    } catch (err: any) {
-      return c.json({ error: "Failed to serve index.html: " + String(err?.message || err) }, 500);
-    }
+
+    return c.json({ error: "Not found: " + urlPath }, 404);
   });
 }
