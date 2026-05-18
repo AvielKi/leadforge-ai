@@ -3,7 +3,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useMobileSidebar } from "@/hooks/useMobileSidebar";
 
 export default function TopBar() {
-  const { user, logout } = useAuth();
+  const { user, logout, isAuthenticated } = useAuth();
   const { open } = useMobileSidebar();
 
   return (
@@ -95,7 +95,7 @@ export default function TopBar() {
               {user?.name || "Agent"}
             </p>
             <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
-              {isMockUser ? "Demo User" : user?.role || "Professional"}
+              {isAuthenticated ? (user?.role || "Professional") : "Guest"}
             </p>
           </div>
           <div
@@ -107,7 +107,7 @@ export default function TopBar() {
           <button
             onClick={logout}
             className="p-1.5 rounded-lg transition-colors hover:bg-white/5 hidden sm:block"
-            title={isMockUser ? "Reload (Demo Mode)" : "Sign Out"}
+            title={isAuthenticated ? "Sign Out" : "Login"}
             style={{ color: "var(--text-muted)" }}
           >
             <LogOut className="w-3.5 h-3.5" />
