@@ -29,10 +29,15 @@ const ALLOWED_ORIGINS = [
   "https://cgbbibvzi43d6.kimi.page",
   "http://localhost:3000",
   "http://localhost:5173",
-  // Railway domains - auto-detected
+  // Railway domains
   "https://leadforge-production-d686.up-railway.app",
   "https://leadforge-production-824d.up-railway.app",
   "https://leadforge-production-24e3.up-railway.app",
+  "https://leadforge-production-169d.up-railway.app",
+  "https://leadforge-production-38de.up-railway.app",
+  "https://leadforge-production-f62f.up-railway.app",
+  "https://leadforge-production-1a16.up-railway.app",
+  "https://leadforge-production-3506.up-railway.app",
 ];
 
 // Dynamic origin check - allows Railway preview domains
