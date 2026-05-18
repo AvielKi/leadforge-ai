@@ -1,0 +1,12 @@
+[build]
+builder = "RAILPACK"
+
+[deploy]
+startCommand = "NODE_ENV=production node dist/boot.js"
+healthcheckPath = "/api/health"
+healthcheckTimeout = 30
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3
+
+[environments.production]
+preDeployCommand = "npm run db:push"
