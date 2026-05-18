@@ -7,41 +7,56 @@ import path from "path";
 type App = Hono<{ Bindings: HttpBindings }>;
 
 export function serveStaticFiles(app: App) {
-  // Find the correct public directory path
-  // On Railway, the app runs from project root, so dist/public is at <root>/dist/public
+  // Railway runs: node dist/boot.js from project root
+  // So import.meta.dirname = <root>/dist
+  // And public files are at <root>/dist/public
+  const __dirname = import.meta.dirname || "";
+  const cwd = process.cwd();
+
   const possiblePaths = [
-    path.join(process.cwd(), "dist", "public"),
-    path.join(process.cwd(), "public"),
-    path.resolve(import.meta.dirname || __dirname, "public"),
-    path.resolve(import.meta.dirname || __dirname, "..", "public"),
+    // Railway: boot.js is at dist/boot.js, public is at dist/public
+    path.join(__dirname, "public"),
+    // Fallback: cwd/dist/public (if boot.js is somewhere else)
+    path.join(cwd, "dist", "public"),
+    // Fallback: cwd/public
+    path.join(cwd, "public"),
+    // Fallback: parent of dirname + dist/public
+    path.join(path.dirname(__dirname), "dist", "public"),
+    // Fallback: just in case
+    "/app/dist/public",
+    "/app/public",
   ];
 
   let publicRoot = "";
   for (const p of possiblePaths) {
-    if (fs.existsSync(path.join(p, "index.html"))) {
-      publicRoot = p;
-      break;
+    if (p && fs.existsSync(p)) {
+      const indexPath = path.join(p, "index.html");
+      if (fs.existsSync(indexPath)) {
+        publicRoot = p;
+        break;
+      }
     }
   }
 
+  console.log("🔧 CWD:", cwd);
+  console.log("🔧 DIRNAME:", __dirname);
+
   if (!publicRoot) {
-    console.error("❌ Could not find dist/public directory. Tried:");
-    possiblePaths.forEach((p) => console.error(`   ${p}`));
-    console.error("   CWD:", process.cwd());
-    console.error("   DIRNAME:", import.meta.dirname || __dirname);
-    // List files in cwd as debug
-    try {
-      console.error("   Files in CWD:", fs.readdirSync(process.cwd()).join(", "));
-    } catch {}
+    console.error("❌ Could not find public directory. Tried:");
+    possiblePaths.forEach((p) => {
+      const exists = p ? fs.existsSync(p) : false;
+      const hasIndex = exists ? fs.existsSync(path.join(p, "index.html")) : false;
+      console.error(`   ${p} (exists: ${exists}, has index.html: ${hasIndex})`);
+    });
     return;
   }
 
   console.log("✅ Serving static files from:", publicRoot);
 
-  // Serve static files using @hono/node-server/serve-static with absolute path
+  // Use serveStatic with absolute path
   app.use("*", serveStatic({ root: publicRoot }));
 
-  // SPA fallback for React Router
+  // SPA fallback
   app.notFound((c) => {
     const accept = c.req.header("accept") ?? "";
     if (!accept.includes("text/html")) {
